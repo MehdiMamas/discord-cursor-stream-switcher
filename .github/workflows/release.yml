@@ -47,6 +47,9 @@ jobs:
           } finally {
             Remove-Item $key -ErrorAction SilentlyContinue
           }
+          # The app only accepts updates signed by release-key.pub; refuse to publish anything else.
+          cargo run --release --locked --example sign -- verify dist/cursor-stream-switcher.exe release-key.pub "cursor-stream-switcher $env:VERSION"
+          if ($LASTEXITCODE -ne 0) { throw "signature does not match release-key.pub" }
           [IO.File]::WriteAllText("dist/latest.toml", "version = `"$env:VERSION`"`n")
           $sums = Get-ChildItem dist | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" }
           [IO.File]::WriteAllText("dist/SHA256SUMS.txt", ($sums -join "`n") + "`n")
