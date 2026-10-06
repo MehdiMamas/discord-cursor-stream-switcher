@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 (2026-10-06)
+
+First published installer release (the 0.2.0 build failed at its version check and was never released).
+
+- The release job trims the padded installer version before comparing it to the tag.
+
 ## 0.2.0 (2026-10-06)
 
 - Ships as an installer (`cursor-stream-switcher-setup.exe`) instead of a bare `.exe`. It installs to Program Files, adds a Start menu entry and an optional "Start with Windows", and is listed in Settings > Apps.

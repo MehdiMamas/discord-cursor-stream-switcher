@@ -1,6 +1,6 @@
 [package]
 name = "cursor-stream-switcher"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.85"
 description = "Streams the monitor under your mouse cursor to a virtual display, so Discord screen share follows your cursor."
