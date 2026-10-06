@@ -3,14 +3,17 @@
 //! - The only network traffic the app ever makes. It can be turned off in the settings.
 //! - Every URL is built here from the fixed repository name; nothing in a download can redirect
 //!   the app to another project.
-//! - The new .exe must carry a minisign signature from the release key embedded below, with a
+//! - The app lives in Program Files, so it can't replace itself: it downloads the release
+//!   installer and runs it, and the installer (after a UAC prompt) does the upgrade.
+//! - The installer must carry a minisign signature from the release key embedded below, with a
 //!   signed comment naming the exact version, so an old or foreign build can't be swapped in.
 
-use crate::{http, info, warn};
+use crate::{http, info, paths, system};
 use std::path::{Path, PathBuf};
 
 pub const REPO: &str = "MehdiMamas/discord-cursor-stream-switcher";
-pub const ASSET: &str = "cursor-stream-switcher.exe";
+/// The installer published with each release.
+pub const ASSET: &str = "cursor-stream-switcher-setup.exe";
 /// minisign public key of the release signing key (the secret half lives in GitHub Actions).
 pub const PUBLIC_KEY: &str = include_str!("../release-key.pub");
 
@@ -83,58 +86,73 @@ pub fn check() -> Result<Option<Version>, String> {
     Ok((latest > Version::current()).then_some(latest))
 }
 
-/// Downloads and verifies version `v`, swaps it in for the running .exe and starts it.
-/// On success the caller must exit right away.
+/// Arguments for an unattended upgrade. `/relaunch=1` tells the installer to start the new
+/// version when it's done (see installer/cursor-stream-switcher.iss).
+fn installer_args(log: &Path) -> String {
+    format!("/SILENT /SUPPRESSMSGBOXES /NORESTART /SP- /relaunch=1 \"/LOG={}\"", log.display())
+}
+
+/// Where downloaded installers wait to run. Emptied on the next start.
+fn download_dir() -> PathBuf {
+    paths::data_dir().join("update")
+}
+
+/// Downloads and verifies the installer for version `v` and runs it. The installer asks for
+/// admin rights, closes this app, replaces it in Program Files and starts the new version, so
+/// on success this process is usually gone before the function returns.
 pub fn install(v: Version) -> Result<(), String> {
     let base = format!("/{REPO}/releases/download/v{v}/{ASSET}");
-    let exe = http::get("github.com", &base, 64 * 1024 * 1024)?;
+    let setup = http::get("github.com", &base, 64 * 1024 * 1024)?;
     let sig = http::get("github.com", &format!("{base}.minisig"), 16 * 1024)?;
-    verify(PUBLIC_KEY, &exe, &String::from_utf8_lossy(&sig), v)?;
-    info!("downloaded and verified v{v} ({} bytes)", exe.len());
+    verify(PUBLIC_KEY, &setup, &String::from_utf8_lossy(&sig), v)?;
+    info!("downloaded and verified v{v} ({} bytes)", setup.len());
 
-    let current = std::env::current_exe().map_err(|e| e.to_string())?;
-    replace_exe(&current, &exe)?;
-    std::process::Command::new(&current)
-        .arg("--after-update")
-        .spawn()
-        .map_err(|e| format!("updated, but could not restart: {e}"))?;
-    Ok(())
-}
-
-fn old_path(exe: &Path) -> PathBuf {
-    exe.with_extension("exe.old")
-}
-
-/// Windows lets a running .exe be renamed but not overwritten, so: write new, move current
-/// aside, move new into place. The old file is deleted on the next start.
-fn replace_exe(current: &Path, bytes: &[u8]) -> Result<(), String> {
-    let new = current.with_extension("exe.new");
-    let old = old_path(current);
-    let _ = std::fs::remove_file(&old);
-    std::fs::write(&new, bytes).map_err(|e| format!("can't write {}: {e}", new.display()))?;
-    if let Err(e) = std::fs::rename(current, &old) {
-        let _ = std::fs::remove_file(&new);
-        return Err(format!(
-            "can't replace {} ({e}). Move the app to a folder you can write to.",
-            current.display()
-        ));
+    let dir = download_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
+    let path = dir.join(ASSET);
+    let log = dir.join("setup.log");
+    let _held = write_and_hold(&path, &setup)?;
+    let code = system::run_and_wait(&path, &installer_args(&log))?;
+    info!("installer exited with code {code}");
+    match code {
+        0 => Ok(()),
+        // Inno Setup: 2 = cancelled before installing, 5 = cancelled while installing.
+        2 | 5 => Err("cancelled".into()),
+        _ => Err(format!("The installer stopped with code {code}. Details: {}", log.display())),
     }
-    if let Err(e) = std::fs::rename(&new, current) {
-        let _ = std::fs::rename(&old, current);
-        return Err(format!("can't move the new version into place: {e}"));
-    }
-    Ok(())
 }
 
-/// Removes the previous version left behind by an update.
-pub fn cleanup_old() {
-    if let Ok(exe) = std::env::current_exe() {
-        let old = old_path(&exe);
-        if old.exists() {
-            match std::fs::remove_file(&old) {
-                Ok(()) => info!("removed previous version {}", old.display()),
-                Err(e) => warn!("could not remove {}: {e}", old.display()),
-            }
+/// Writes `bytes` to `path`, reopens it with read-only sharing and checks it holds exactly
+/// `bytes`. While the returned handle lives, nothing can change the verified installer before
+/// Windows runs it.
+fn write_and_hold(path: &Path, bytes: &[u8]) -> Result<std::fs::File, String> {
+    use std::io::Read;
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_SHARE_READ: u32 = 1;
+
+    let _ = std::fs::remove_file(path);
+    std::fs::write(path, bytes).map_err(|e| format!("can't write {}: {e}", path.display()))?;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(path)
+        .map_err(|e| format!("can't open {}: {e}", path.display()))?;
+    let mut on_disk = Vec::with_capacity(bytes.len());
+    file.read_to_end(&mut on_disk).map_err(|e| format!("can't read {}: {e}", path.display()))?;
+    if on_disk != bytes {
+        return Err(format!("{} changed after it was written", path.display()));
+    }
+    Ok(file)
+}
+
+/// Removes installers left by an earlier update. One that is still running (it starts the new
+/// version just before it exits) stays until the next start.
+pub fn cleanup() {
+    let dir = download_dir();
+    if dir.exists() {
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => info!("removed {}", dir.display()),
+            Err(e) => info!("could not remove {} yet: {e}", dir.display()),
         }
     }
 }
@@ -197,16 +215,30 @@ mod tests {
     }
 
     #[test]
-    fn replace_exe_swaps_files() {
+    fn held_installer_cannot_be_swapped() {
         let dir = std::env::temp_dir().join(format!("css-update-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let exe = dir.join("app.exe");
-        std::fs::write(&exe, b"old").unwrap();
-        replace_exe(&exe, b"new").unwrap();
-        assert_eq!(std::fs::read(&exe).unwrap(), b"new");
-        assert_eq!(std::fs::read(old_path(&exe)).unwrap(), b"old");
-        assert!(!exe.with_extension("exe.new").exists());
+        let path = dir.join(ASSET);
+        std::fs::write(&path, b"stale").unwrap();
+
+        let held = write_and_hold(&path, b"verified installer").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"verified installer");
+        assert!(std::fs::write(&path, b"evil").is_err());
+        assert!(std::fs::rename(&path, dir.join("moved.exe")).is_err());
+        assert!(std::fs::remove_file(&path).is_err());
+
+        drop(held);
+        std::fs::write(&path, b"free again").unwrap();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn installer_runs_silently_and_relaunches() {
+        let args = installer_args(Path::new(r"C:\Users\A B\setup.log"));
+        for flag in ["/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/relaunch=1"] {
+            assert!(args.split(' ').any(|a| a == flag), "{flag} missing from {args}");
+        }
+        assert!(args.ends_with(r#""/LOG=C:\Users\A B\setup.log""#), "{args}");
     }
 }

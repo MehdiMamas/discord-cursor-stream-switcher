@@ -1,5 +1,4 @@
 /target
 /.autopilot
-*.exe.old
-*.exe.new
+/dist
 *.key

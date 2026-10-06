@@ -1,5 +1,6 @@
 //! Small OS helpers: elevation, autostart, opening files, message boxes.
 
+use std::path::Path;
 use windows::Win32::Foundation::{CloseHandle, ERROR_CANCELLED, HWND};
 use windows::Win32::System::Registry::{
     HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW,
@@ -7,7 +8,7 @@ use windows::Win32::System::Registry::{
 use windows::Win32::System::Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject};
 use windows::Win32::UI::Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW, ShellExecuteW};
 use windows::Win32::UI::WindowsAndMessaging::{
-    MB_ICONINFORMATION, MB_OK, MESSAGEBOX_STYLE, MessageBoxW, SW_HIDE, SW_SHOWNORMAL,
+    MB_ICONINFORMATION, MB_OK, MESSAGEBOX_STYLE, MessageBoxW, SHOW_WINDOW_CMD, SW_HIDE, SW_SHOWNORMAL,
 };
 use windows::core::{HSTRING, PCWSTR, w};
 
@@ -17,15 +18,25 @@ const RUN_VALUE: PCWSTR = w!("CursorStreamSwitcher");
 /// Runs this .exe elevated with `args` (UAC prompt) and waits for its exit code.
 pub fn run_elevated(args: &str) -> Result<u32, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe = HSTRING::from(exe.as_os_str());
+    shell_execute_wait(w!("runas"), &exe, args, SW_HIDE)
+}
+
+/// Runs `file` as the current user and waits for its exit code. A program that needs admin
+/// rights (like the installer) asks for them itself.
+pub fn run_and_wait(file: &Path, args: &str) -> Result<u32, String> {
+    shell_execute_wait(w!("open"), file, args, SW_SHOWNORMAL)
+}
+
+fn shell_execute_wait(verb: PCWSTR, file: &Path, args: &str, show: SHOW_WINDOW_CMD) -> Result<u32, String> {
+    let file = HSTRING::from(file.as_os_str());
     let params = HSTRING::from(args);
     let mut info = SHELLEXECUTEINFOW {
         cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
         fMask: SEE_MASK_NOCLOSEPROCESS,
-        lpVerb: w!("runas"),
-        lpFile: PCWSTR(exe.as_ptr()),
+        lpVerb: verb,
+        lpFile: PCWSTR(file.as_ptr()),
         lpParameters: PCWSTR(params.as_ptr()),
-        nShow: SW_HIDE.0,
+        nShow: show.0,
         ..Default::default()
     };
     // SAFETY: strings outlive the call; the returned process handle is closed below.

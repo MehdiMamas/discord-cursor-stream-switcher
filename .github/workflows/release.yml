@@ -31,24 +31,35 @@ jobs:
       - run: cargo test --locked
       - run: cargo build --release --locked
 
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "installing Inno Setup failed" }
+          }
+          & $iscc installer/cursor-stream-switcher.iss
+          if ($LASTEXITCODE -ne 0) { throw "installer build failed" }
+          $v = (Get-Item dist/cursor-stream-switcher-setup.exe).VersionInfo.ProductVersion
+          if ($v -ne $env:VERSION) { throw "installer version $v does not match $env:VERSION" }
+
       - name: Sign and package
         shell: pwsh
         env:
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
         run: |
           if (-not $env:MINISIGN_SECRET_KEY) { throw "MINISIGN_SECRET_KEY secret is missing" }
-          New-Item -ItemType Directory dist | Out-Null
-          Copy-Item target/release/cursor-stream-switcher.exe dist/
           $key = Join-Path $env:RUNNER_TEMP 'minisign.key'
           [IO.File]::WriteAllText($key, $env:MINISIGN_SECRET_KEY)
           try {
-            cargo run --release --locked --example sign -- sign dist/cursor-stream-switcher.exe $key "cursor-stream-switcher $env:VERSION"
+            cargo run --release --locked --example sign -- sign dist/cursor-stream-switcher-setup.exe $key "cursor-stream-switcher $env:VERSION"
             if ($LASTEXITCODE -ne 0) { throw "signing failed" }
           } finally {
             Remove-Item $key -ErrorAction SilentlyContinue
           }
           # The app only accepts updates signed by release-key.pub; refuse to publish anything else.
-          cargo run --release --locked --example sign -- verify dist/cursor-stream-switcher.exe release-key.pub "cursor-stream-switcher $env:VERSION"
+          cargo run --release --locked --example sign -- verify dist/cursor-stream-switcher-setup.exe release-key.pub "cursor-stream-switcher $env:VERSION"
           if ($LASTEXITCODE -ne 0) { throw "signature does not match release-key.pub" }
           [IO.File]::WriteAllText("dist/latest.toml", "version = `"$env:VERSION`"`n")
           $sums = Get-ChildItem dist | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" }
@@ -60,5 +71,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $notes = "Download **cursor-stream-switcher.exe** and run it. See the README for setup.`n`nThe .minisig file is the update signature (checked automatically by the app)."
+          $notes = "Download **cursor-stream-switcher-setup.exe** and run it. See the README for setup.`n`nThe .minisig file is the update signature (checked automatically by the app)."
           gh release create $env:GITHUB_REF_NAME (Get-ChildItem dist).FullName --title "Cursor Stream Switcher $env:VERSION" --notes $notes

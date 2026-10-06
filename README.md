@@ -14,7 +14,7 @@ Because you share a *screen* (not a window), Discord also streams your system au
 └─────────┘      └─────────┘      └─────────┘          └──────────────────────┘
 ```
 
-- **Light:** one 1.3 MB `.exe`, no runtime to install. About 0.3% GPU and almost no CPU in
+- **Light:** a 2.5 MB installer for one 1.3 MB `.exe`, no runtime to install. About 0.3% GPU and almost no CPU in
   normal use. See [Performance](#performance).
 - **Private:** no accounts, no telemetry, no analytics. The only network request is an
   optional daily update check to this repo's GitHub Releases. See [Privacy and security](#privacy-and-security).
@@ -23,20 +23,24 @@ Because you share a *screen* (not a window), Discord also streams your system au
 
 ## Install
 
-1. Download `cursor-stream-switcher.exe` from the [latest release](https://github.com/MehdiMamas/discord-cursor-stream-switcher/releases/latest).
-2. Put it in a folder you own, e.g. `%LOCALAPPDATA%\Programs\CursorStreamSwitcher\`, so it
-   can update itself. Avoid `Program Files`.
-3. Run it. A tray icon appears (a little blue screen with a cursor).
-4. Click the **"One-time setup"** notification, or open the tray menu and choose
+1. Download [`cursor-stream-switcher-setup.exe`](https://github.com/MehdiMamas/discord-cursor-stream-switcher/releases/latest/download/cursor-stream-switcher-setup.exe)
+   from the [latest release](https://github.com/MehdiMamas/discord-cursor-stream-switcher/releases/latest)
+   and run it. It installs to `C:\Program Files\Cursor Stream Switcher`, adds a Start menu
+   entry and, if you leave the box ticked, starts with Windows.
+2. A tray icon appears (a little blue screen with a cursor).
+3. Click the **"One-time setup"** notification, or open the tray menu and choose
    **Virtual display → Install driver...**.
    - Approve the Windows admin prompt.
    - Windows then asks whether to install display software from **SignPath Foundation**.
      That is the signed [Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver)
      (MIT). Click **Install**.
-5. Optional: tray menu → **Start with Windows**.
 
-Windows SmartScreen may warn on first run because the app isn't code-signed yet
+Windows SmartScreen may warn about the installer because it isn't code-signed yet
 (**More info → Run anyway**). Release files are signed for the updater, see below.
+
+**Updates:** the app checks once a day and shows a notification when a new version is out.
+Click it (or tray menu → **Install update**) and approve the Windows admin prompt. The
+installer upgrades the app in place and starts it again. Your settings are kept.
 
 ## Use it in Discord
 
@@ -101,10 +105,11 @@ Memory is about 55 MB, mostly the graphics driver. Switching to another monitor 
   `github.com/MehdiMamas/discord-cursor-stream-switcher/releases`. It sends no data about
   you beyond what any web request carries (your IP address and the app version in the
   User-Agent). Turn it off with tray menu → **Check for updates daily**.
-- **Updates are signed.** Each release `.exe` carries a [minisign](https://jedisct1.github.io/minisign/)
+- **Updates are signed.** Each release installer carries a [minisign](https://jedisct1.github.io/minisign/)
   signature. The app has the public key built in (`release-key.pub`) and rejects any file
   that isn't signed by the release key *for exactly that version*, so a tampered or old file
-  can't be slipped in. Download URLs are fixed to this repository.
+  can't be slipped in. Download URLs are fixed to this repository. The checked installer
+  stays locked until it has run, so nothing can swap it in between.
 - **The driver is the official signed build.** The Virtual Display Driver files (release
   25.7.23) are embedded in the `.exe` and pinned by SHA-256 in the tests. Windows checks the
   driver signature itself and asks you before installing it. The app never adds certificates
@@ -131,17 +136,20 @@ Memory is about 55 MB, mostly the graphics driver. Switching to another monitor 
 
 ## Uninstall
 
-1. Tray menu → **Virtual display → Remove driver...**
-2. Turn off **Start with Windows**, then **Quit**.
-3. Delete the `.exe`, `%APPDATA%\CursorStreamSwitcher` and `%LOCALAPPDATA%\CursorStreamSwitcher`.
+**Settings → Apps → Installed apps → Cursor Stream Switcher → Uninstall** (or Control Panel →
+Programs). The uninstaller quits the app and removes the virtual display driver and the
+"Start with Windows" entry. It then asks whether to delete your settings and logs
+(`%APPDATA%\CursorStreamSwitcher` and `%LOCALAPPDATA%\CursorStreamSwitcher`).
 
 ## Building from source
 
-Requires Windows 10/11, Rust (stable, MSVC) and the Visual Studio Build Tools.
+Requires Windows 10/11, Rust (stable, MSVC) and the Visual Studio Build Tools. The installer
+needs [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`).
 
 ```powershell
 cargo test
-cargo build --release   # target\release\cursor-stream-switcher.exe
+cargo build --release                      # target\release\cursor-stream-switcher.exe
+iscc installer\cursor-stream-switcher.iss  # dist\cursor-stream-switcher-setup.exe
 ```
 
 `cargo run --release --example probe_fps -- \\.\DISPLAY2 10` counts how many frames a display
@@ -152,8 +160,8 @@ really produces, as a screen recorder (or Discord) sees them.
 1. Bump `version` in `Cargo.toml`, add a line to `CHANGELOG.md`, commit and push.
 2. `git tag v0.2.0 && git push origin v0.2.0`
 
-The **Release** workflow tests, builds, signs the `.exe` with the `MINISIGN_SECRET_KEY` repository
-secret, and publishes it with `latest.toml` and `SHA256SUMS.txt`. Running copies pick it up
+The **Release** workflow tests, builds the app and the installer, signs the installer with the
+`MINISIGN_SECRET_KEY` repository secret, and publishes it with `latest.toml` and `SHA256SUMS.txt`. Running copies pick it up
 within a day, or right away from **Check for updates now**.
 
 ## Credits

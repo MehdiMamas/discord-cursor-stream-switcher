@@ -569,7 +569,12 @@ impl App {
             return;
         }
         self.busy = true;
-        self.balloon(BalloonAction::None, "Updating", &format!("Downloading version {v}..."), false);
+        self.balloon(
+            BalloonAction::None,
+            "Updating",
+            &format!("Downloading version {v}. Windows will ask to allow the installer."),
+            false,
+        );
         let hwnd = self.hwnd.0 as isize;
         std::thread::spawn(move || post_job(hwnd, Job::UpdateInstall(update::install(v))));
     }
@@ -639,9 +644,14 @@ impl App {
             Job::UpdateInstall(result) => {
                 self.busy = false;
                 match result {
+                    // The installer normally closes this process itself and starts the new one.
                     Ok(()) => {
-                        info!("update installed; restarting");
+                        info!("update installed; exiting");
                         self.quit();
+                    }
+                    Err(e) if e == "cancelled" => {
+                        info!("update cancelled");
+                        self.balloon(BalloonAction::None, "Update cancelled", "Nothing was changed.", false);
                     }
                     Err(e) => {
                         error!("update failed: {e}");
@@ -781,6 +791,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_DISPLAYCHANGE => {
             with_app(|a| a.shared.send(Command::DisplaysChanged));
+            LRESULT(0)
+        }
+        // Sent by the installer and uninstaller (and Restart Manager) to close the app.
+        WM_CLOSE => {
+            with_app(|a| a.quit());
             LRESULT(0)
         }
         WM_QUERYENDSESSION => LRESULT(1),

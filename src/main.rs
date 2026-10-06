@@ -51,6 +51,7 @@ fn main() {
     }
 
     // One instance per user session. After an update the old process may still be exiting.
+    // The installer looks for this mutex and the tray window to close the app before upgrading.
     // SAFETY: named mutex owned for the life of the process.
     let mutex = unsafe { CreateMutexW(None, true, w!("Local\\CursorStreamSwitcher.SingleInstance")) };
     let Ok(mutex) = mutex else {
@@ -77,7 +78,7 @@ fn main() {
         env!("CARGO_PKG_VERSION"),
         std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default()
     );
-    update::cleanup_old();
+    update::cleanup();
     system::refresh_autostart();
 
     let (cfg, problem) = Config::load(&paths::config_file());
