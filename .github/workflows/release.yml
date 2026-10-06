@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches Cargo.toml
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ("v$v" -ne $env:GITHUB_REF_NAME) { throw "tag $env:GITHUB_REF_NAME does not match Cargo.toml version $v" }
+          "VERSION=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Rust toolchain
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add clippy rustfmt
+
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+
+      - name: Sign and package
+        shell: pwsh
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          if (-not $env:MINISIGN_SECRET_KEY) { throw "MINISIGN_SECRET_KEY secret is missing" }
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target/release/cursor-stream-switcher.exe dist/
+          $key = Join-Path $env:RUNNER_TEMP 'minisign.key'
+          [IO.File]::WriteAllText($key, $env:MINISIGN_SECRET_KEY)
+          try {
+            cargo run --release --locked --example sign -- sign dist/cursor-stream-switcher.exe $key "cursor-stream-switcher $env:VERSION"
+            if ($LASTEXITCODE -ne 0) { throw "signing failed" }
+          } finally {
+            Remove-Item $key -ErrorAction SilentlyContinue
+          }
+          [IO.File]::WriteAllText("dist/latest.toml", "version = `"$env:VERSION`"`n")
+          $sums = Get-ChildItem dist | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" }
+          [IO.File]::WriteAllText("dist/SHA256SUMS.txt", ($sums -join "`n") + "`n")
+          Get-Content dist/SHA256SUMS.txt
+
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = "Download **cursor-stream-switcher.exe** and run it. See the README for setup.`n`nThe .minisig file is the update signature (checked automatically by the app)."
+          gh release create $env:GITHUB_REF_NAME (Get-ChildItem dist).FullName --title "Cursor Stream Switcher $env:VERSION" --notes $notes

@@ -1,0 +1,5 @@
+* text=auto eol=lf
+# Signed driver files: must stay byte-for-byte identical (the catalog signs their hashes).
+vendor/vdd/** binary
+*.ico binary
+*.exe binary
