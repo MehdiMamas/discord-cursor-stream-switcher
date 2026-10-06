@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 (2026-10-06)
+
+First published release (the 0.1.0 build failed at signing and was never released).
+
+- Release signing loads the unencrypted key, and the release job checks the signature against the app's built-in key before publishing.
+
 ## 0.1.0 (2026-10-06)
 
 First release.
