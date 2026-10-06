@@ -41,7 +41,8 @@ jobs:
           }
           & $iscc installer/cursor-stream-switcher.iss
           if ($LASTEXITCODE -ne 0) { throw "installer build failed" }
-          $v = (Get-Item dist/cursor-stream-switcher-setup.exe).VersionInfo.ProductVersion
+          # Inno Setup pads the version string with spaces.
+          $v = (Get-Item dist/cursor-stream-switcher-setup.exe).VersionInfo.ProductVersion.Trim()
           if ($v -ne $env:VERSION) { throw "installer version $v does not match $env:VERSION" }
 
       - name: Sign and package
