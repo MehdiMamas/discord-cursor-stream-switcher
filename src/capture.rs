@@ -158,7 +158,10 @@ impl Capture {
         want_mips: bool,
     ) -> Result<FrameUpdate> {
         let mut update = FrameUpdate::default();
-        if info.LastPresentTime != 0
+        // A newly selected monitor still needs its initial desktop image when the acquired
+        // frame only reports a pointer update. Otherwise a quiet screen can leave the previous
+        // monitor on the stream until a window repaints.
+        if (info.LastPresentTime != 0 || self.image.is_none())
             && let Some(resource) = resource
         {
             let frame: ID3D11Texture2D = resource.cast()?;

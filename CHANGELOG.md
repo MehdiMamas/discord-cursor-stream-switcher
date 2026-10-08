@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 (2026-10-08)
+
+- Fix frozen streams when moving between monitors on different GPUs by releasing the old swap chain's bound buffers before creating its replacement.
+- Capture the initial image of a newly selected monitor even when the first frame only reports cursor movement.
+- Release the bound back buffer before resizing the stream display.
+
 ## 0.2.1 (2026-10-06)
 
 First published installer release (the 0.2.0 build failed at its version check and was never released).

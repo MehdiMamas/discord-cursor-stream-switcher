@@ -106,6 +106,20 @@ struct Presenter {
     height: u32,
 }
 
+impl Drop for Presenter {
+    fn drop(&mut self) {
+        // The immediate context retains the bound back buffer even after our RTV is dropped.
+        // Release it and flush deferred destruction before creating another flip-model swap
+        // chain for this HWND (in particular when the source moves to a different GPU).
+        unsafe {
+            self.gpu.ctx.ClearState();
+            self.gpu.d2d.SetTarget(None);
+        }
+        self.rtv = None;
+        unsafe { self.gpu.ctx.Flush() };
+    }
+}
+
 impl Presenter {
     fn new(gpu: Rc<Gpu>, hwnd: HWND, width: u32, height: u32) -> Result<Self> {
         // SAFETY: COM calls with valid arguments; the window belongs to this thread.
@@ -133,8 +147,10 @@ impl Presenter {
         if (width, height) == (self.width, self.height) {
             return Ok(());
         }
+        // SAFETY: unbind the context's reference as well as our own before resizing.
+        unsafe { self.gpu.ctx.OMSetRenderTargets(None, None) };
         self.rtv = None;
-        // SAFETY: no views of the back buffers are alive (rtv dropped above).
+        // SAFETY: no views of the back buffers are alive.
         unsafe { self.swap.ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG(0))? };
         self.width = width;
         self.height = height;
@@ -661,7 +677,12 @@ impl<'a> Mirror<'a> {
     fn ensure_presenter(&mut self, gpu: &Rc<Gpu>, stream: &Monitor) -> Result<()> {
         let (w, h) = (stream.rect.width() as u32, stream.rect.height() as u32);
         if self.presenter.as_ref().is_some_and(|p| p.gpu.luid != gpu.luid) {
-            self.presenter = None;
+            let old = self.presenter.take().expect("presenter checked above");
+            let old_gpu = old.gpu.clone();
+            drop(old);
+            // SAFETY: finish deferred destruction of the old swap chain itself before its
+            // replacement is associated with the same window on the new adapter.
+            unsafe { old_gpu.ctx.Flush() };
         }
         match self.presenter.as_mut() {
             Some(p) => p.resize(w, h)?,
