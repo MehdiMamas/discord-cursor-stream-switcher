@@ -1,6 +1,8 @@
 # Cursor Stream Switcher
 
-Share **one screen** in Discord, and it always shows **the monitor your mouse is on**.
+Share one screen in Discord, and it always shows the monitor your mouse is on.
+
+![Diagram: as the mouse moves between monitors, the "Stream Cursor" screen shared in Discord follows it](docs/images/demo.gif)
 
 Discord can only stream one fixed screen. This app adds a virtual monitor called
 **"Stream Cursor"** and keeps drawing whichever real monitor your cursor is on onto it.
@@ -22,6 +24,14 @@ Because you share a *screen* (not a window), Discord also streams your system au
   rotated screens, HDR screens, and monitors on different GPUs.
 
 ## Install
+
+One line in PowerShell downloads the installer, checks it against the release's `SHA256SUMS.txt` and runs it:
+
+```powershell
+$u="https://github.com/MehdiMamas/discord-cursor-stream-switcher/releases/latest/download"; $f=Join-Path ([IO.Path]::GetTempPath()) "cursor-stream-switcher-setup-$(Get-Random).exe"; irm "$u/cursor-stream-switcher-setup.exe" -OutFile $f; $h=((irm "$u/SHA256SUMS.txt") -split "`n" | sls "setup\.exe$").Line.Split(" ")[0]; if ((Get-FileHash $f).Hash -eq $h) { & $f } else { Write-Error "Checksum mismatch, not running $f" }
+```
+
+Or do it by hand:
 
 1. Download [`cursor-stream-switcher-setup.exe`](https://github.com/MehdiMamas/discord-cursor-stream-switcher/releases/latest/download/cursor-stream-switcher-setup.exe)
    from the [latest release](https://github.com/MehdiMamas/discord-cursor-stream-switcher/releases/latest)

@@ -1,7 +1,9 @@
 name: CI
 
-# Runs on pull requests (e.g. Dependabot) and on demand. Every release also runs the tests.
+# Runs on pushes to main, pull requests (e.g. Dependabot) and on demand. Every release also runs the tests.
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
