@@ -1,5 +1,7 @@
 # Cursor Stream Switcher
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/MehdiMamas/discord-cursor-stream-switcher/badge)](https://scorecard.dev/viewer/?uri=github.com/MehdiMamas/discord-cursor-stream-switcher)
+
 Share one screen in Discord, and it always shows the monitor your mouse is on.
 
 ![Diagram: as the mouse moves between monitors, the "Stream Cursor" screen shared in Discord follows it](docs/images/demo.gif)
